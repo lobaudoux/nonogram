@@ -1,0 +1,3 @@
+UNKNOWN = -1
+EMPTY = 0
+FILLED = 1
