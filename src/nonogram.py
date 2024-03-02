@@ -108,70 +108,16 @@ class Nonogram:
     def _get_value_from_placement(position, placement):
         for cell_index, length in placement:
             if cell_index <= position < cell_index + length:
-                return 1
-        return 0
+                return FILLED
+        return EMPTY
 
     @staticmethod
-    def solve_for_values(clues, values):
-        if sum(1 for value in values if value == FILLED) == sum(clues):
-            return [EMPTY if value == UNKNOWN else value for value in values]
-
-        # Find all possible placements
-        already_filled_cells = [i for i, value in enumerate(values) if value == FILLED]
-        possible_placements = []
-        init_cell_indexes = [0]
-        while values[init_cell_indexes[0]] == EMPTY:
-            init_cell_indexes[0] += 1
-        clue_index = 0
-        cur_placement = []
-        while init_cell_indexes[0] < len(values):
-            if (
-                all(
-                    init_cell_indexes[clue_index] + i < len(values)
-                    and values[init_cell_indexes[clue_index] + i] in {FILLED, UNKNOWN}
-                    for i in range(clues[clue_index])
-                )
-                and (
-                    init_cell_indexes[clue_index] + clues[clue_index] >= len(values)
-                    or values[init_cell_indexes[clue_index] + clues[clue_index]] in {UNKNOWN, EMPTY}
-                )
-            ):
-                cur_placement.append((init_cell_indexes[clue_index], clues[clue_index]))
-                if clue_index < len(clues) - 1:
-                    init_cell_indexes.append(init_cell_indexes[clue_index] + clues[clue_index] + 1)
-                    clue_index += 1
-                else:
-                    if all(Nonogram._get_value_from_placement(i, cur_placement) == FILLED for i in already_filled_cells):
-                        possible_placements.append(cur_placement[:])
-                    init_cell_indexes[clue_index] += 1
-                    cur_placement.pop()
-            else:
-                if init_cell_indexes[clue_index] >= len(values):
-                    clue_index -= 1
-                    init_cell_indexes.pop()
-                    cur_placement = cur_placement[:-1]
-                init_cell_indexes[clue_index] += 1
-
-        # Find values common to all placements
-        if possible_placements:
-            new_values = []
-            for i in range(len(values)):
-                new_value = Nonogram._get_value_from_placement(i, possible_placements[0])
-                if all(Nonogram._get_value_from_placement(i, placement) == new_value for placement in possible_placements):
-                    new_values.append(new_value)
-                else:
-                    new_values.append(UNKNOWN)
-            if new_values != values:
-                return new_values
-        return False
-
-    @staticmethod
-    def optimized_solve_for_values(clues, values):
+    def _get_unsolved_part(clues, values):
         if not any(value == UNKNOWN for value in values):
-            return values
+            return clues, values, (len(clues), 0), (len(values), 0)
 
         if sum(1 for value in values if value == FILLED) == sum(clues):
-            return [EMPTY if value == UNKNOWN else value for value in values]
+            return clues, [EMPTY if value == UNKNOWN else value for value in values], (len(clues), 0), (len(values), 0)
 
         values_copy = values[:]
 
@@ -181,7 +127,8 @@ class Nonogram:
             clues_start < len(clues)
             and all(value == FILLED for value in values_copy[values_start:values_start + clues[clues_start]])
         ):
-            values_copy[values_start + clues[clues_start]] = EMPTY
+            with suppress(IndexError):
+                values_copy[values_start + clues[clues_start]] = EMPTY
             values_start += clues[clues_start] + 1
             clues_start += 1
 
@@ -191,53 +138,113 @@ class Nonogram:
             clues_end >= 0
             and all(value == FILLED for value in values_copy[values_end - clues[clues_end - 1]:values_end])
         ):
-            values_copy[values_end - clues[clues_end - 1] - 1] = EMPTY
+            with suppress(IndexError):
+                values_copy[values_end - clues[clues_end - 1] - 1] = EMPTY
             values_end -= clues[clues_end - 1] + 1
             clues_end -= 1
 
-        _values = values_copy[values_start:values_end]
-        _clues = clues[clues_start:clues_end]
+        return clues, values_copy, (clues_start, clues_end), (values_start, values_end)
+
+    @staticmethod
+    def solve_for_values(clues, values):
+        if not values:
+            return values
+
+        # Find all possible placements
+        already_filled_cells = [i for i, value in enumerate(values) if value == FILLED]
+        possible_placements = []
+        init_cell_indexes = [0]
+        while values[init_cell_indexes[0]] == EMPTY:
+            init_cell_indexes[0] += 1
+        clue_index = 0
+        cur_placement = []
+
+        values_length = len(values)
+        clues_length = len(clues)
+
+        while init_cell_indexes[0] < values_length:
+            end_of_clue_index = init_cell_indexes[clue_index] + clues[clue_index]
+            if (
+                end_of_clue_index <= values_length
+                and EMPTY not in values[init_cell_indexes[clue_index]:end_of_clue_index]
+                and (
+                    end_of_clue_index == values_length
+                    or values[end_of_clue_index] in {UNKNOWN, EMPTY}
+                )
+            ):
+                cur_placement.append((init_cell_indexes[clue_index], clues[clue_index]))
+                if clue_index < clues_length - 1:
+                    init_cell_indexes.append(end_of_clue_index + 1)
+                    clue_index += 1
+                else:
+                    if all(Nonogram._get_value_from_placement(i, cur_placement) == FILLED for i in already_filled_cells):
+                        possible_placements.append(cur_placement[:])
+                    init_cell_indexes[clue_index] += 1
+                    cur_placement.pop()
+            else:
+                if init_cell_indexes[clue_index] >= values_length:
+                    clue_index -= 1
+                    init_cell_indexes.pop()
+                    cur_placement = cur_placement[:-1]
+                init_cell_indexes[clue_index] += 1
+
+        # Find values common to all placements
+        if possible_placements:
+            new_values = []
+            for i in range(values_length):
+                new_value = Nonogram._get_value_from_placement(i, possible_placements[0])
+                if all(Nonogram._get_value_from_placement(i, placement) == new_value for placement in possible_placements):
+                    new_values.append(new_value)
+                else:
+                    new_values.append(UNKNOWN)
+            return new_values
+        return values
+
+    @staticmethod
+    def optimized_solve_for_values(clues, values):
+        if not values:
+            return values
 
         # Solve values based on first filled cells
-        for i, value in enumerate(_values[:_clues[0] + 1]):
+        for i, value in enumerate(values[:clues[0] + 1]):
             if value == FILLED:
-                if i == _clues[0]:
-                    _values[0] = EMPTY
+                if i == clues[0]:
+                    values[0] = EMPTY
                 else:
-                    for j in range(_clues[0] - i):
-                        _values[i + j] = FILLED
+                    for j in range(clues[0] - i):
+                        values[i + j] = FILLED
                     if i == 0:
                         with suppress(IndexError):
-                            _values[_clues[0]] = EMPTY
+                            values[clues[0]] = EMPTY
                 break
 
         # Solve values based on last filled cells
-        for i, value in enumerate(reversed(_values[-_clues[-1] - 1:])):
+        for i, value in enumerate(reversed(values[-clues[-1] - 1:])):
             if value == FILLED:
-                if i == _clues[-1]:
-                    _values[-1] = EMPTY
+                if i == clues[-1]:
+                    values[-1] = EMPTY
                 else:
-                    for j in range(_clues[-1] - i):
-                        _values[-i - j - 1] = FILLED
+                    for j in range(clues[-1] - i):
+                        values[-i - j - 1] = FILLED
                     if i == 0:
                         with suppress(IndexError):
-                            _values[-_clues[-1] - 1] = EMPTY
+                            values[-clues[-1] - 1] = EMPTY
                 break
 
         # Generate all possible ranges
-        margin = len(_values) - sum(_clues) - len(_clues) + 1
+        margin = len(values) - sum(clues) - len(clues) + 1
         clues_ranges = []
         i = 0
-        for clue in _clues:
+        for clue in clues:
             clues_ranges.append([i + j for j in range(margin + 1)])
             i += clue + 1
 
         # Filter based on empty cells
-        empty_cells = [i for i, value in enumerate(_values) if value == EMPTY]
+        empty_cells = [i for i, value in enumerate(values) if value == EMPTY]
         clues_search_start_i = 0
         for empty_cell_i in empty_cells:
             first_match_found = False
-            for clue_range, clue in zip(clues_ranges[clues_search_start_i:], _clues[clues_search_start_i:]):
+            for clue_range, clue in zip(clues_ranges[clues_search_start_i:], clues[clues_search_start_i:]):
                 if clue_range[0] > empty_cell_i:
                     break
                 elif empty_cell_i < clue_range[-1] + clue:
@@ -250,40 +257,37 @@ class Nonogram:
 
         # Filter based on ranges start
         for (clue_range, clue), (other_clues_range, other_clue) in zip(
-            zip(clues_ranges[:-1], _clues[:-1]),
-            zip(clues_ranges[1:], _clues[1:]),
+            zip(clues_ranges[:-1], clues[:-1]),
+            zip(clues_ranges[1:], clues[1:]),
         ):
             other_clues_range[:] = other_clues_range[bisect.bisect_right(other_clues_range, clue_range[0] + clue):]
             clue_range[:] = clue_range[:bisect.bisect_left(clue_range, other_clues_range[-1] - clue)]
 
         # Filter based on filled cells
-        for clue_range, clue in zip(clues_ranges, _clues):
+        for clue_range, clue in zip(clues_ranges, clues):
             values_to_remove = []
             for clue_start_i in clue_range:
                 if (
-                    (clue_start_i > 0 and _values[clue_start_i - 1] == FILLED)
-                    or (clue_start_i + clue < len(_values) and _values[clue_start_i + clue] == FILLED)
+                    (clue_start_i > 0 and values[clue_start_i - 1] == FILLED)
+                    or (clue_start_i + clue < len(values) and values[clue_start_i + clue] == FILLED)
                 ):
                     values_to_remove.append(clue_start_i)
             for value in values_to_remove:
                 clue_range.remove(value)
 
-        new_values = [EMPTY if value != FILLED else FILLED for value in _values]
-        for clue_range, clue in zip(clues_ranges, _clues):
+        new_values = [EMPTY if value != FILLED else FILLED for value in values]
+        for clue_range, clue in zip(clues_ranges, clues):
             filled_cells_length = clue_range[0] + clue - clue_range[-1]
             for i in range(clue_range[-1] - clue_range[0] + clue):
-                if _values[clue_range[0] + i] == UNKNOWN:
+                if values[clue_range[0] + i] == UNKNOWN:
                     new_values[clue_range[0] + i] = UNKNOWN
             for i in range(filled_cells_length):
                 new_values[clue_range[0] + clue - filled_cells_length + i] = FILLED
 
-        if sum(_clues) == new_values.count(FILLED):
+        if sum(clues) == new_values.count(FILLED):
             new_values = [EMPTY if value == UNKNOWN else value for value in new_values]
 
-        _new_values = values_copy[:values_start] + new_values + values_copy[values_end:]
-        if _new_values != values:
-            return _new_values
-        return False
+        return new_values
 
     def is_unsolved(self, line):
         return any(self.grid[x][y] == UNKNOWN for x, y in line.coordinates)
@@ -299,21 +303,25 @@ class Nonogram:
             self.gui.draw()
 
     def solve(self):
-        while self.lines_to_solve:
-            line = self._get_next_line_to_solve()
-            values = self.optimized_solve_for_values(line.clues, [self.grid[x][y] for x, y in line.coordinates])
-            if values:
-                self._update_grid_from_values(line, values)
+        for solve_function in (self.optimized_solve_for_values, self.solve_for_values):
+            while self.lines_to_solve:
+                line = self._get_next_line_to_solve()
 
-        for line in itertools.chain(self.horizontal_lines, self.vertical_lines):
-            if self.is_unsolved(line):
-                self._enqueue_line_to_solve(line)
+                clues = line.clues
+                values = [self.grid[x][y] for x, y in line.coordinates]
 
-        while self.lines_to_solve:
-            line = self._get_next_line_to_solve()
-            values = self.solve_for_values(line.clues, [self.grid[x][y] for x, y in line.coordinates])
-            if values:
-                self._update_grid_from_values(line, values)
+                _clues, _values, (clues_start, clues_end), (values_start, values_end) = Nonogram._get_unsolved_part(clues, values)
+                new_values = (
+                    _values[:values_start]
+                    + solve_function(_clues[clues_start:clues_end], _values[values_start:values_end])
+                    + _values[values_end:]
+                )
+                if new_values != values:
+                    self._update_grid_from_values(line, new_values)
+
+            for line in itertools.chain(self.horizontal_lines, self.vertical_lines):
+                if self.is_unsolved(line):
+                    self._enqueue_line_to_solve(line)
 
         return tuple(tuple(self.grid[x][y] for x in range(self.x_size)) for y in range(self.y_size))
 
