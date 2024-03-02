@@ -53,7 +53,7 @@ class Nonogram:
     @staticmethod
     def generate_random_clues(n, m, density):
         filled_indices = set(random.sample(range(n * m), round(density * n * m)))
-        grid = [[EMPTY if i * n + j not in filled_indices else FILLED for i in range(n)] for j in range(m)]
+        grid = [[EMPTY if j * n + i not in filled_indices else FILLED for i in range(n)] for j in range(m)]
         horizontal_clues = []
         for i in range(m):
             count_filled = 0
