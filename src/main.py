@@ -12,6 +12,10 @@ def main():
     parser.add_argument('-d', '--density', default=0.6, type=float)
     args = parser.parse_args()
 
+    assert 1 <= args.n, "The number of columns should be strictly positive."
+    assert 1 <= args.m, "The number of rows should be strictly positive."
+    assert 0 <= args.density <= 1, "The density should be between 0 and 1."
+
     nonogram = Nonogram(n=args.n, m=args.m, density=args.density)
 
     density = (
