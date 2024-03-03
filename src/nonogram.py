@@ -105,13 +105,6 @@ class Nonogram:
         return line
 
     @staticmethod
-    def _get_value_from_placement(position, placement):
-        for cell_index, length in placement:
-            if cell_index <= position < cell_index + length:
-                return FILLED
-        return EMPTY
-
-    @staticmethod
     def _get_unsolved_part(clues, values):
         if not any(value == UNKNOWN for value in values):
             return clues, values, (len(clues), 0), (len(values), 0)
@@ -153,47 +146,47 @@ class Nonogram:
         # Find all possible placements
         already_filled_cells = [i for i, value in enumerate(values) if value == FILLED]
         possible_placements = []
-        init_cell_indexes = [0]
-        while values[init_cell_indexes[0]] == EMPTY:
-            init_cell_indexes[0] += 1
+        clues_start = [0]
         clue_index = 0
-        cur_placement = []
+        cur_placement = [EMPTY] * len(values)
 
         values_length = len(values)
         clues_length = len(clues)
+        clues_start_limits = [values_length - sum(clues[i:]) - clues_length + i + 1 for i in range(clues_length + 1)]
 
-        while init_cell_indexes[0] < values_length:
-            end_of_clue_index = init_cell_indexes[clue_index] + clues[clue_index]
+        while clues_start[0] <= clues_start_limits[0]:
+            clue_start = clues_start[clue_index]
+            clue_end = clue_start + clues[clue_index]
             if (
-                end_of_clue_index <= values_length
-                and EMPTY not in values[init_cell_indexes[clue_index]:end_of_clue_index]
+                clue_end <= values_length
+                and EMPTY not in values[clue_start:clue_end]
                 and (
-                    end_of_clue_index == values_length
-                    or values[end_of_clue_index] in {UNKNOWN, EMPTY}
-                )
+                clue_end == values_length
+                or values[clue_end] in {UNKNOWN, EMPTY}
+            )
             ):
-                cur_placement.append((init_cell_indexes[clue_index], clues[clue_index]))
+                cur_placement[clue_start:clue_end] = [FILLED] * clues[clue_index]
                 if clue_index < clues_length - 1:
-                    init_cell_indexes.append(end_of_clue_index + 1)
+                    clues_start.append(clue_end + 1)
                     clue_index += 1
                 else:
-                    if all(Nonogram._get_value_from_placement(i, cur_placement) == FILLED for i in already_filled_cells):
+                    if all(cur_placement[i] == FILLED for i in already_filled_cells):
                         possible_placements.append(cur_placement[:])
-                    init_cell_indexes[clue_index] += 1
-                    cur_placement.pop()
+                    cur_placement[clue_start:clue_end] = [EMPTY] * clues[clue_index]
+                    clues_start[clue_index] += 1
             else:
-                if init_cell_indexes[clue_index] >= values_length:
+                if clue_start > clues_start_limits[clue_index]:
                     clue_index -= 1
-                    init_cell_indexes.pop()
-                    cur_placement = cur_placement[:-1]
-                init_cell_indexes[clue_index] += 1
+                    cur_placement[clues_start[clue_index]:clues_start[clue_index] + clues[clue_index]] = [EMPTY] * clues[clue_index]
+                    clues_start.pop()
+                clues_start[clue_index] += 1
 
         # Find values common to all placements
         if possible_placements:
             new_values = []
             for i in range(values_length):
-                new_value = Nonogram._get_value_from_placement(i, possible_placements[0])
-                if all(Nonogram._get_value_from_placement(i, placement) == new_value for placement in possible_placements):
+                new_value = possible_placements[0][i]
+                if all(placement[i] == new_value for placement in possible_placements):
                     new_values.append(new_value)
                 else:
                     new_values.append(UNKNOWN)
