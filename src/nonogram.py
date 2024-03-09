@@ -11,7 +11,19 @@ class Line:
     def __init__(self, coordinates, clues, orientation):
         self.coordinates = coordinates
         self.clues = clues
+        self.clues_length = len(clues)
+        self.clues_sum = sum(clues)
+        self.unknown_count = len(coordinates)
         self.orientation = orientation
+        self.score = 0.0
+        self.compute_score()
+
+    def compute_score(self):
+        self.score = (
+            0.75 * self.clues_sum
+            - 1.5 * self.clues_length
+            - self.unknown_count
+        )
 
     def __lt__(self, other):
         return sum(self.clues) < sum(other.clues)
@@ -99,7 +111,7 @@ class Nonogram:
             self.lines_to_solve_set.add(line)
 
     def _get_next_line_to_solve(self):
-        self.lines_to_solve.sort(key=lambda l: sum(l.clues))
+        self.lines_to_solve.sort(key=lambda l: l.score)
         line = self.lines_to_solve.pop()
         self.lines_to_solve_set.remove(line)
         return line
@@ -161,9 +173,9 @@ class Nonogram:
                 clue_end <= values_length
                 and EMPTY not in values[clue_start:clue_end]
                 and (
-                clue_end == values_length
-                or values[clue_end] in {UNKNOWN, EMPTY}
-            )
+                    clue_end == values_length
+                    or values[clue_end] in {UNKNOWN, EMPTY}
+                )
             ):
                 cur_placement[clue_start:clue_end] = [FILLED] * clues[clue_index]
                 if clue_index < clues_length - 1:
@@ -288,10 +300,14 @@ class Nonogram:
     def _update_grid_from_values(self, line, values):
         for i, (x, y) in enumerate(line.coordinates):
             if values[i] != UNKNOWN and self.grid[x][y] != values[i]:
+                line.unknown_count -= 1
                 new_line_to_solve = self.horizontal_lines[i] if line.orientation == 'vertical' else self.vertical_lines[i]
+                new_line_to_solve.unknown_count -= 1
+                new_line_to_solve.compute_score()
                 if self.is_unsolved(new_line_to_solve):
                     self._enqueue_line_to_solve(new_line_to_solve)
                 self.grid[x][y] = values[i]
+        line.compute_score()
         if self.gui:
             self.gui.draw()
 
