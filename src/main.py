@@ -20,11 +20,12 @@ def main():
 
     density = (
         (sum(sum(clues) for clues in nonogram.vertical_clues) + sum(sum(clues) for clues in nonogram.horizontal_clues))
-        / (2 * nonogram.x_size * nonogram.y_size)
+        / (2 * nonogram.size_x * nonogram.size_y)
     )
     print(f"Density is {density:.2f}")
 
     gui = GUI(nonogram, draw_crosses=True)
+    gui.draw()
     nonogram.set_gui(gui)
 
     start = time.perf_counter()

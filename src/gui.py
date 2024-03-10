@@ -77,21 +77,20 @@ class GUI:
         # Draw the board
         for x in range(self.size_x):
             for y in range(self.size_y):
+                pygame.draw.rect(
+                    self.display,
+                    BLACK_COLOR if self.nonogram.grid[x][y] == FILLED else BACKGROUND_COLOR,
+                    (
+                        self.board_origin_x_pixel + x * self.size_cell_pixel,
+                        self.board_origin_y_pixel + y * self.size_cell_pixel,
+                        self.size_cell_pixel,
+                        self.size_cell_pixel,
+                    )
+                )
                 if self.draw_crosses and self.nonogram.grid[x][y] == EMPTY:
                     rect = self.cross_sprite.get_rect()
                     rect.center = self.board_origin_x_pixel + (x + .5) * self.size_cell_pixel, self.board_origin_y_pixel + (y + .5) * self.size_cell_pixel
                     self.display.blit(self.cross_sprite, rect)
-                else:
-                    pygame.draw.rect(
-                        self.display,
-                        BLACK_COLOR if self.nonogram.grid[x][y] == FILLED else BACKGROUND_COLOR,
-                        (
-                            self.board_origin_x_pixel + x * self.size_cell_pixel,
-                            self.board_origin_y_pixel + y * self.size_cell_pixel,
-                            self.size_cell_pixel,
-                            self.size_cell_pixel,
-                        )
-                    )
 
         # Draw bold contour lines
         bold_lines = [

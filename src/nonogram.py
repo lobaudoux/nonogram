@@ -25,9 +25,6 @@ class Line:
             - self.unknown_count
         )
 
-    def __lt__(self, other):
-        return sum(self.clues) < sum(other.clues)
-
     def __hash__(self):
         return hash(self.coordinates)
 
@@ -45,20 +42,21 @@ class Nonogram:
         else:
             self.vertical_clues = clues[0]
             self.horizontal_clues = clues[1]
-        self.x_size = len(self.vertical_clues)
-        self.y_size = len(self.horizontal_clues)
-        self.grid = [[UNKNOWN for _ in range(self.y_size)] for _ in range(self.x_size)]
+        self.size_x = len(self.vertical_clues)
+        self.size_y = len(self.horizontal_clues)
+        self.grid = [[UNKNOWN for _ in range(self.size_y)] for _ in range(self.size_x)]
         self.lines_to_solve = []
         self.lines_to_solve_set = set()
+        self.cache = {}
         self.horizontal_lines = []
         self.vertical_lines = []
-        for x in range(self.x_size):
-            line = Line(tuple((x, y) for y in range(self.y_size)), self.vertical_clues[x], 'vertical')
-            self._enqueue_line_to_solve(line)
+        for x in range(self.size_x):
+            line = Line(tuple((x, y) for y in range(self.size_y)), self.vertical_clues[x], 'vertical')
+            self.add_line_to_solve(line)
             self.vertical_lines.append(line)
-        for y in range(self.y_size):
-            line = Line(tuple((x, y) for x in range(self.x_size)), self.horizontal_clues[y], 'horizontal')
-            self._enqueue_line_to_solve(line)
+        for y in range(self.size_y):
+            line = Line(tuple((x, y) for x in range(self.size_x)), self.horizontal_clues[y], 'horizontal')
+            self.add_line_to_solve(line)
             self.horizontal_lines.append(line)
         self.gui = None
 
@@ -101,24 +99,20 @@ class Nonogram:
         self.gui = gui
         self.gui.draw()
 
-    def _clear_lines_to_solve(self):
-        self.lines_to_solve.clear()
-        self.lines_to_solve_set = set()
-
-    def _enqueue_line_to_solve(self, line):
+    def add_line_to_solve(self, line):
         if line not in self.lines_to_solve_set:
             self.lines_to_solve.append(line)
             self.lines_to_solve_set.add(line)
 
-    def _get_next_line_to_solve(self):
+    def get_next_line_to_solve(self):
         self.lines_to_solve.sort(key=lambda l: l.score)
         line = self.lines_to_solve.pop()
         self.lines_to_solve_set.remove(line)
         return line
 
     @staticmethod
-    def _get_unsolved_part(clues, values):
-        if not any(value == UNKNOWN for value in values):
+    def get_unsolved_part(clues, values):
+        if UNKNOWN not in values:
             return clues, values, (len(clues), 0), (len(values), 0)
 
         if sum(1 for value in values if value == FILLED) == sum(clues):
@@ -126,16 +120,19 @@ class Nonogram:
 
         values_copy = values[:]
 
-        values_start = 0
+        values_start = next(i for i in range(len(values)) if values[i] != EMPTY)
         clues_start = 0
         while (
             clues_start < len(clues)
             and all(value == FILLED for value in values_copy[values_start:values_start + clues[clues_start]])
         ):
             with suppress(IndexError):
+                assert values_copy[values_start + clues[clues_start]] != FILLED
                 values_copy[values_start + clues[clues_start]] = EMPTY
             values_start += clues[clues_start] + 1
             clues_start += 1
+            while values_copy[values_start] == EMPTY:
+                values_start += 1
 
         values_end = len(values_copy)
         clues_end = len(clues)
@@ -151,11 +148,7 @@ class Nonogram:
         return clues, values_copy, (clues_start, clues_end), (values_start, values_end)
 
     @staticmethod
-    def solve_for_values(clues, values):
-        if not values:
-            return values
-
-        # Find all possible placements
+    def get_placements(clues, values):
         already_filled_cells = [i for i, value in enumerate(values) if value == FILLED]
         possible_placements = []
         clues_start = [0]
@@ -192,18 +185,34 @@ class Nonogram:
                     cur_placement[clues_start[clue_index]:clues_start[clue_index] + clues[clue_index]] = [EMPTY] * clues[clue_index]
                     clues_start.pop()
                 clues_start[clue_index] += 1
+        return possible_placements
+
+    def solve_for_values(self, clues, values):
+        if not values:
+            return values
+
+        values = tuple(values)
+        clues = tuple(clues)
+        if (clues, values) in self.cache:
+            return self.cache[(clues, values)]
+
+        # Find all possible placements
+        possible_placements = self.get_placements(clues, values)
 
         # Find values common to all placements
         if possible_placements:
             new_values = []
-            for i in range(values_length):
+            for i in range(len(values)):
                 new_value = possible_placements[0][i]
                 if all(placement[i] == new_value for placement in possible_placements):
                     new_values.append(new_value)
                 else:
                     new_values.append(UNKNOWN)
+
+            self.cache[(clues, values)] = new_values[:]
             return new_values
-        return values
+        else:
+            raise AssertionError
 
     @staticmethod
     def optimized_solve_for_values(clues, values):
@@ -297,7 +306,7 @@ class Nonogram:
     def is_unsolved(self, line):
         return any(self.grid[x][y] == UNKNOWN for x, y in line.coordinates)
 
-    def _update_grid_from_values(self, line, values):
+    def update_grid_from_values(self, line, values):
         for i, (x, y) in enumerate(line.coordinates):
             if values[i] != UNKNOWN and self.grid[x][y] != values[i]:
                 line.unknown_count -= 1
@@ -305,7 +314,7 @@ class Nonogram:
                 new_line_to_solve.unknown_count -= 1
                 new_line_to_solve.compute_score()
                 if self.is_unsolved(new_line_to_solve):
-                    self._enqueue_line_to_solve(new_line_to_solve)
+                    self.add_line_to_solve(new_line_to_solve)
                 self.grid[x][y] = values[i]
         line.compute_score()
         if self.gui:
@@ -314,25 +323,60 @@ class Nonogram:
     def solve(self):
         for solve_function in (self.optimized_solve_for_values, self.solve_for_values):
             while self.lines_to_solve:
-                line = self._get_next_line_to_solve()
+                line = self.get_next_line_to_solve()
 
                 clues = line.clues
                 values = [self.grid[x][y] for x, y in line.coordinates]
 
-                _clues, _values, (clues_start, clues_end), (values_start, values_end) = Nonogram._get_unsolved_part(clues, values)
+                _clues, _values, (clues_start, clues_end), (values_start, values_end) = Nonogram.get_unsolved_part(clues, values)
                 new_values = (
-                    _values[:values_start]
-                    + solve_function(_clues[clues_start:clues_end], _values[values_start:values_end])
-                    + _values[values_end:]
+                    *_values[:values_start],
+                    *solve_function(_clues[clues_start:clues_end], _values[values_start:values_end]),
+                    *_values[values_end:],
                 )
                 if new_values != values:
-                    self._update_grid_from_values(line, new_values)
+                    self.update_grid_from_values(line, new_values)
 
             for line in itertools.chain(self.horizontal_lines, self.vertical_lines):
                 if self.is_unsolved(line):
-                    self._enqueue_line_to_solve(line)
+                    self.add_line_to_solve(line)
 
-        return tuple(tuple(self.grid[x][y] for x in range(self.x_size)) for y in range(self.y_size))
+        if self.lines_to_solve:
+            line_to_solve_sorted_by_number_of_placements = sorted(
+                self.lines_to_solve,
+                key=lambda l: len(self.get_placements(l.clues, [self.grid[x][y] for x, y in l.coordinates]))
+            )
+
+            # Take a guess on the line that have the fewest number of placements possible
+            line_to_solve = line_to_solve_sorted_by_number_of_placements[0]
+            self.lines_to_solve.remove(line_to_solve)
+            self.lines_to_solve_set.remove(line_to_solve)
+
+            _clues, _values, (clues_start, clues_end), (values_start, values_end) = Nonogram.get_unsolved_part(
+                line_to_solve.clues,
+                [self.grid[x][y] for x, y in line_to_solve.coordinates]
+            )
+            for placement in self.get_placements(_clues[clues_start:clues_end], _values[values_start:values_end]):
+                grid_copy = [row[:] for row in self.grid]
+                new_values = (
+                    *_values[:values_start],
+                    *placement,
+                    *_values[values_end:],
+                )
+                self.update_grid_from_values(line_to_solve, new_values)
+                try:
+                    self.solve()
+                    if any(self.is_unsolved(line) for line in itertools.chain(self.horizontal_lines, self.vertical_lines)):
+                        raise AssertionError
+                    else:
+                        break
+                except (AssertionError, IndexError):
+                    self.grid = grid_copy
+                    for line in itertools.chain(self.horizontal_lines, self.vertical_lines):
+                        line.unknown_count = [self.grid[x][y] for x, y in line.coordinates].count(UNKNOWN)
+                        line.compute_score()
+
+        return tuple(tuple(self.grid[x][y] for x in range(self.size_x)) for y in range(self.size_y))
 
     def __str__(self):
         s = ""
@@ -345,11 +389,11 @@ class Nonogram:
                 s += f'|{clues[index] if index >= 0 else " ":>2} '
             s += '|\n'
 
-        dash_line = '-' * (2 * max_length_horizontal + 4 * self.x_size + 1) + '\n'
+        dash_line = '-' * (2 * max_length_horizontal + 4 * self.size_x + 1) + '\n'
         for y, clues in enumerate(self.horizontal_clues):
             s += dash_line
             s += f'{" ".join(str(clue) for clue in clues):>{2 * max_length_horizontal - 1}} '
-            for x in range(self.x_size):
+            for x in range(self.size_x):
                 s += f'| {"#" if self.grid[x][y] == FILLED else " " if self.grid[x][y] == EMPTY else "?"} '
             s += '|\n'
         s += dash_line
